@@ -6,12 +6,19 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { strToU8, zipSync } from 'fflate';
 import type { Note } from '../models/note.model';
 import type {
+  DefaultView,
   UserPreferences,
   UserProfileExport,
 } from '../models/user-preferences.model';
 import { EMOTE_AVATARS } from '../constants/emotes';
+import {
+  formatNoteToMarkdown,
+  formatViewToMarkdown,
+  sanitizeFilename,
+} from '../utils/markdown';
 
 interface ExportResult {
   success: boolean;
@@ -33,7 +40,7 @@ interface ImportResult {
  * ImportExportService - Handles data portability
  *
  * Responsibilities:
- * - Exporting backups to JSON and CSV
+ * - Exporting backups to JSON, CSV, and Markdown
  * - Importing notes from JSON and CSV files
  * - Validating imported data
  * - Providing user feedback
@@ -172,6 +179,122 @@ export class ImportExportService {
       return {
         success: false,
         message: 'Failed to export backup as CSV',
+      };
+    }
+  }
+
+  /** Exports the visible notes in the active view as one Markdown document.
+   * @param notes - Array of notes to export
+   * @param view - Active view
+   * @returns Result object with success status
+   */
+  static exportViewMarkdown(notes: Note[], view: DefaultView): ExportResult {
+    try {
+      const fileName = `ownlyst-${view}-${this.getTimestamp()}.md`;
+      this.downloadBlob(
+        new Blob([formatViewToMarkdown(notes, view)], {
+          type: 'text/markdown;charset=utf-8',
+        }),
+        fileName
+      );
+
+      return {
+        success: true,
+        message: `Exported ${notes.length} visible note(s) as Markdown`,
+        fileName,
+      };
+    } catch (error) {
+      console.error(
+        '[ImportExportService] Error exporting view as Markdown:',
+        error
+      );
+      return {
+        success: false,
+        message: 'Failed to export the current view as Markdown',
+      };
+    }
+  }
+
+  /** Exports all supplied notes as standalone Markdown files in a ZIP archive.
+   * @param notes - Array of notes to export
+   * @returns Result object with success status
+   */
+  static exportMarkdownArchive(notes: Note[]): ExportResult {
+    try {
+      const archiveEntries: Record<string, Uint8Array> = {};
+      notes.forEach((note) => {
+        archiveEntries[sanitizeFilename(note.title, note.id)] = strToU8(
+          formatNoteToMarkdown(note)
+        );
+      });
+
+      const fileName = `ownlyst-notes-${this.getTimestamp()}.zip`;
+      this.downloadBlob(
+        new Blob([zipSync(archiveEntries)], { type: 'application/zip' }),
+        fileName
+      );
+
+      return {
+        success: true,
+        message: `Exported ${notes.length} note(s) as a Markdown ZIP`,
+        fileName,
+      };
+    } catch (error) {
+      console.error(
+        '[ImportExportService] Error exporting Markdown archive:',
+        error
+      );
+      return {
+        success: false,
+        message: 'Failed to create the Markdown ZIP export',
+      };
+    }
+  }
+
+  /** Downloads one saved note as a standalone Markdown file.
+   * @param note - Note to export
+   * @returns Result object with success status
+   */
+  static exportNoteMarkdown(note: Note): ExportResult {
+    try {
+      const fileName = sanitizeFilename(note.title, note.id);
+      this.downloadBlob(
+        new Blob([formatNoteToMarkdown(note)], {
+          type: 'text/markdown;charset=utf-8',
+        }),
+        fileName
+      );
+
+      return {
+        success: true,
+        message: 'Downloaded note as Markdown',
+        fileName,
+      };
+    } catch (error) {
+      console.error(
+        '[ImportExportService] Error exporting note as Markdown:',
+        error
+      );
+      return { success: false, message: 'Failed to download note as Markdown' };
+    }
+  }
+
+  /** Copies one saved note's standalone Markdown document to the clipboard.
+   * @param note - Note to export
+   * @returns Result object with success status
+   */
+  static copyNoteMarkdown(note: Note): ExportResult {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error('Clipboard access is unavailable');
+      }
+      navigator.clipboard.writeText(formatNoteToMarkdown(note));
+      return { success: true, message: 'Copied Markdown to clipboard' };
+    } catch (error) {
+      console.error('[ImportExportService] Error copying Markdown:', error);
+      return {
+        success: false,
+        message: 'Unable to copy Markdown to the clipboard',
       };
     }
   }
@@ -505,6 +628,20 @@ export class ImportExportService {
       value === 'table' ||
       value === 'roadmap'
     );
+  }
+
+  /**
+   * Triggers a browser download and always cleans up its temporary URL.
+   */
+  private static downloadBlob(blob: Blob, fileName: string): void {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 
   /**
