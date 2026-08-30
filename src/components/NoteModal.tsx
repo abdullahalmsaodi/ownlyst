@@ -13,10 +13,21 @@
 
 import { useState, useEffect, useCallback, type FormEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Calendar, Pin, Check, Flag, ListTodo, Tag } from 'lucide-react';
+import {
+  X,
+  Calendar,
+  Pin,
+  Check,
+  Flag,
+  ListTodo,
+  Tag,
+  Download,
+  Copy,
+} from 'lucide-react';
 import type { Note } from '../types/Note';
 import { NOTE_STATUSES, NOTE_PRIORITIES } from '../models/enums';
 import { formatDateForInput } from '../utils/dates';
+import { ImportExportService } from '../services/import-export.service';
 
 /**
  * Props for NoteModal component
@@ -34,6 +45,14 @@ interface NoteModalProps {
   defaultDueDate?: Date;
   /** Callback when note is saved */
   onSave: (note: Omit<Note, 'id' | 'createdAt'>) => void;
+}
+
+/**
+ * Props for MarkdownFeedback toast
+ */
+interface MarkdownFeedback {
+  message: string;
+  success: boolean;
 }
 
 /**
@@ -67,6 +86,8 @@ export default function NoteModal({
 
   // Form validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [markdownFeedback, setMarkdownFeedback] =
+    useState<MarkdownFeedback | null>(null);
 
   /**
    * Initialize form data when note changes or modal opens
@@ -97,6 +118,7 @@ export default function NoteModal({
       });
     }
     setErrors({});
+    setMarkdownFeedback(null);
   }, [note, defaultStatus, defaultDueDate, isOpen]);
 
   /**
@@ -177,6 +199,31 @@ export default function NoteModal({
     onClose();
   };
 
+  const showMarkdownFeedback = (result: MarkdownFeedback) => {
+    setMarkdownFeedback(result);
+    setTimeout(() => setMarkdownFeedback(null), 4000);
+  };
+
+  /**
+   * Handle Download Markdown
+   * Download note as markdown file (.md)
+   */
+  const handleDownloadMarkdown = () => {
+    if (!note) return;
+    const result = ImportExportService.exportNoteMarkdown(note);
+    showMarkdownFeedback({ message: result.message, success: result.success });
+  };
+
+  /**
+   * Handle Copy Markdown
+   * Copy markdown to clipboard
+   */
+  const handleCopyMarkdown = async () => {
+    if (!note) return;
+    const result = await ImportExportService.copyNoteMarkdown(note);
+    showMarkdownFeedback({ message: result.message, success: result.success });
+  };
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -225,6 +272,30 @@ export default function NoteModal({
 
               {/* Modal Actions */}
               <div className='flex items-center gap-2'>
+                {/* Download Button */}
+                <motion.button
+                  type='button'
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleDownloadMarkdown}
+                  title='Download Markdown'
+                  aria-label='Download Markdown'
+                  className='p-2.5 rounded-xl bg-white dark:bg-slate-700 text-gray-600 dark:text-gray-300 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 transition-all'>
+                  <Download size={18} />
+                </motion.button>
+
+                {/* Copy Button */}
+                <motion.button
+                  type='button'
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleCopyMarkdown}
+                  title='Copy Markdown'
+                  aria-label='Copy Markdown'
+                  className='p-2.5 rounded-xl bg-white dark:bg-slate-700 text-gray-600 dark:text-gray-300 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 transition-all'>
+                  <Copy size={18} />
+                </motion.button>
+
                 {/* Pin Toggle */}
                 <motion.button
                   type='button'
@@ -401,14 +472,28 @@ export default function NoteModal({
             {/* Footer Actions */}
             <div className='flex items-center justify-between px-6 py-4 border-t border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50'>
               <div className='flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400'>
-                <kbd className='px-2 py-1 bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-md text-xs font-mono'>
-                  Esc
-                </kbd>
-                <span>to close</span>
-                <kbd className='px-2 py-1 bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-md text-xs font-mono ml-2'>
-                  Ctrl + Enter
-                </kbd>
-                <span>to save</span>
+                {markdownFeedback ? (
+                  <span
+                    role='status'
+                    className={
+                      markdownFeedback.success
+                        ? 'text-green-600 dark:text-green-400'
+                        : 'text-red-600 dark:text-red-400'
+                    }>
+                    {markdownFeedback.message}
+                  </span>
+                ) : (
+                  <>
+                    <kbd className='px-2 py-1 bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-md text-xs font-mono'>
+                      Esc
+                    </kbd>
+                    <span>to close</span>
+                    <kbd className='px-2 py-1 bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-md text-xs font-mono ml-2'>
+                      Ctrl + Enter
+                    </kbd>
+                    <span>to save</span>
+                  </>
+                )}
               </div>
               <motion.button
                 type='button'
